@@ -1,0 +1,11 @@
+# VSX-Bastion Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# Required dependencies
+requests>=2.25.0
+PyYAML>=5.4.0
+
+# Development dependencies (optional)
+# pytest>=6.0.0
+# black>=21.0.0
+# flake8>=3.8.0

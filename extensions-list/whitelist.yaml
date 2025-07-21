@@ -1,0 +1,116 @@
+# VSX-Bastion Extension Whitelist
+# YAML format with install flags and author organization
+
+authors:
+  Aaron Bond:
+    - id: aaron-bond.better-comments
+      url: https://marketplace.visualstudio.com/items?itemName=aaron-bond.better-comments
+      install: false
+
+  Tailwind Labs:
+    - id: bradlc.vscode-tailwindcss
+      url: https://marketplace.visualstudio.com/items?itemName=bradlc.vscode-tailwindcss
+      install: false
+
+  Christian Kohler:
+    - id: christian-kohler.npm-intellisense
+      url: https://marketplace.visualstudio.com/items?itemName=christian-kohler.npm-intellisense
+      install: false
+    - id: christian-kohler.path-intellisense
+      url: https://marketplace.visualstudio.com/items?itemName=christian-kohler.path-intellisense
+      install: false
+
+  Microsoft:
+    - id: dbaeumer.vscode-eslint
+      url: https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint
+      install: false
+    - id: ms-azuretools.vscode-docker
+      url: https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-docker
+      install: false
+    - id: ms-python.debugpy
+      url: https://marketplace.visualstudio.com/items?itemName=ms-python.debugpy
+      install: false
+    - id: ms-python.python
+      url: https://marketplace.visualstudio.com/items?itemName=ms-python.python
+      install: true
+    - id: ms-python.vscode-pylance
+      url: https://marketplace.visualstudio.com/items?itemName=ms-python.vscode-pylance
+      install: false
+    - id: ms-toolsai.jupyter
+      url: https://marketplace.visualstudio.com/items?itemName=ms-toolsai.jupyter
+      install: false
+    - id: ms-vscode-remote.remote-containers
+      url: https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers
+      install: false
+    - id: ms-vscode-remote.remote-ssh
+      url: https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-ssh
+      install: false
+    - id: ms-vscode.cpptools
+      url: https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools
+      install: false
+    - id: ms-vscode.vscode-typescript-next
+      url: https://marketplace.visualstudio.com/items?itemName=ms-vscode.vscode-typescript-next
+      install: false
+
+  Don Jayamanne:
+    - id: donjayamanne.githistory
+      url: https://marketplace.visualstudio.com/items?itemName=donjayamanne.githistory
+      install: false
+
+  GitKraken:
+    - id: eamodio.gitlens
+      url: https://marketplace.visualstudio.com/items?itemName=eamodio.gitlens
+      install: false
+
+  Esben Petersen:
+    - id: esbenp.prettier-vscode
+      url: https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode
+      install: true
+
+  Jun Han:
+    - id: formulahendry.auto-rename-tag
+      url: https://marketplace.visualstudio.com/items?itemName=formulahendry.auto-rename-tag
+      install: false
+
+  GitHub:
+    - id: github.copilot
+      url: https://marketplace.visualstudio.com/items?itemName=github.copilot
+      install: true
+    - id: github.copilot-chat
+      url: https://marketplace.visualstudio.com/items?itemName=github.copilot-chat
+      install: true
+
+  Go Team at Google:
+    - id: golang.go
+      url: https://marketplace.visualstudio.com/items?itemName=golang.go
+      install: false
+
+  Red Hat:
+    - id: redhat.java
+      url: https://marketplace.visualstudio.com/items?itemName=redhat.java
+      install: false
+
+  Ritwick Dey:
+    - id: ritwickdey.liveserver
+      url: https://marketplace.visualstudio.com/items?itemName=ritwickdey.liveserver
+      install: false
+
+  The Rust Programming Language:
+    - id: rust-lang.rust-analyzer
+      url: https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer
+      install: false
+
+  TabNine:
+    - id: tabnine.tabnine-vscode
+      url: https://marketplace.visualstudio.com/items?itemName=tabnine.tabnine-vscode
+      install: false
+
+  Wayou Liu:
+    - id: wayou.vscode-todo-highlight
+      url: https://marketplace.visualstudio.com/items?itemName=wayou.vscode-todo-highlight
+      install: false
+
+  Wix:
+    - id: wix.vscode-import-cost
+      url: https://marketplace.visualstudio.com/items?itemName=wix.vscode-import-cost
+      install: false
