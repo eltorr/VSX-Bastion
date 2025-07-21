@@ -704,18 +704,7 @@ class DynamicThreatIntelligence:
         except Exception as e:
             logger.debug(f"Could not load patterns from cache: {e}")
 
-    def check_typosquatting(self, extension_name, known_extensions):
-        """Check for typosquatting using difflib."""
-        suspicious_matches = []
-        for known in known_extensions:
-            similarity = SequenceMatcher(None, extension_name.lower(), known.lower()).ratio()
-            if 0.7 <= similarity < 0.95:  # Similar but not identical
-                suspicious_matches.append({
-                    'target': known,
-                    'similarity': similarity,
-                    'confidence': min(similarity * 1.2, 1.0)
-                })
-        return suspicious_matches
+
 
     def calculate_file_hash(self, file_path):
         """Calculate file hash for integrity checking."""
@@ -913,13 +902,6 @@ class EnhancedProductionScanner:
 
         # Initialize dynamic threat intelligence
         self.threat_intel = DynamicThreatIntelligence()
-
-        # Known popular extensions for typosquatting detection
-        self.popular_extensions = [
-            'ms-python.python', 'ms-vscode.vscode-typescript-next',
-            'esbenp.prettier-vscode', 'bradlc.vscode-tailwindcss',
-            'ms-vscode.vscode-json', 'github.copilot', 'formulahendry.auto-rename-tag'
-        ]
 
         # Enhanced RCE patterns with confidence scoring
         self.rce_patterns = {
@@ -1346,20 +1328,6 @@ class EnhancedProductionScanner:
         # Update threat intelligence in background
         threading.Thread(target=self.threat_intel.update_threat_intelligence, daemon=True).start()
 
-        # Check for typosquatting
-        typosquat_matches = self.threat_intel.check_typosquatting(extension_id, self.popular_extensions)
-        typosquat_threats = []
-
-        for match in typosquat_matches:
-            typosquat_threats.append(ThreatDetection(
-                category='typosquatting',
-                file_path='extension_name',
-                pattern_match=f"Similar to {match['target']} (similarity: {match['similarity']:.2f})",
-                confidence=match['confidence'],
-                context=f"Potential typosquatting of popular extension {match['target']}",
-                severity='HIGH' if match['similarity'] > 0.85 else 'MEDIUM'
-            ))
-
         # Download extension
         vsix_path = self.download_extension(extension_id)
         if not vsix_path:
@@ -1493,9 +1461,8 @@ class EnhancedProductionScanner:
             logger.info("Docker analysis temporarily disabled for testing")
             docker_results = None
 
-            # Compile all threats including typosquatting and statistical anomalies
+            # Compile all threats including statistical anomalies
             all_threats = source_threats.copy()
-            all_threats.extend(typosquat_threats)
             all_threats.extend(stats_threats)
 
             # Docker analysis temporarily disabled - all threats come from host scan only
@@ -1544,7 +1511,6 @@ class EnhancedProductionScanner:
                     'pattern_categories_detected': list(set(t.category for t in all_threats)),
                     'avg_threat_confidence': confidence_score,
                     'file_hashes': file_hashes,
-                    'typosquatting_detected': len(typosquat_matches) > 0,
                     'threat_intel_updated': int(self.threat_intel.last_update),
                     'file_statistics': file_stats,
                     'pattern_anomalies': len(pattern_analysis),
