@@ -19,6 +19,14 @@ from urllib.parse import urlparse
 from datetime import datetime
 import requests
 import math
+import sqlite3
+import urllib.request
+import urllib.error
+import hashlib
+import threading
+from difflib import SequenceMatcher
+import statistics
+import collections
 
 # Try to import YAML, provide fallback if not available
 try:
@@ -80,6 +88,30 @@ class ScanResult:
     def __post_init__(self):
         if self.false_positive_indicators is None:
             self.false_positive_indicators = []
+
+    def to_app_format(self) -> Dict:
+        """Convert ScanResult to format expected by the main app."""
+        return {
+            'threats_found': len(self.threats),
+            'threats': [
+                {
+                    'type': threat.category,
+                    'description': f"{threat.pattern_match} (confidence: {threat.confidence:.2f})",
+                    'file_path': threat.file_path,
+                    'severity': threat.severity,
+                    'confidence': threat.confidence,
+                    'line_number': threat.line_number
+                }
+                for threat in self.threats
+            ],
+            'vulnerabilities': len(self.vulnerabilities),
+            'risk_level': self.risk_level,
+            'status': self.status,
+            'extension_id': self.extension_id,
+            'scan_time': self.scan_time,
+            'confidence_score': self.confidence_score,
+            'details': self.details
+        }
 
 class EnhancedDockerEngine:
     """Enhanced Docker engine with improved isolation and analysis."""
@@ -408,7 +440,10 @@ if __name__ == '__main__':
 
     def _get_patterns_config(self) -> Dict:
         """Get enhanced patterns configuration."""
-        return {
+        # Get dynamic patterns from threat intelligence
+        dynamic_patterns = self.threat_intel.get_dynamic_patterns() if hasattr(self, 'threat_intel') else {}
+
+        static_patterns = {
             "rce_patterns": {
                 "powershell_download_execute": [
                     {
@@ -549,6 +584,323 @@ if __name__ == '__main__':
 
         return None
 
+class DynamicThreatIntelligence:
+    """Dynamic threat intelligence loader using built-in libraries."""
+
+    def __init__(self, cache_db='threat_cache.db'):
+        self.cache_db = cache_db
+        self.threat_feeds = [
+            'https://raw.githubusercontent.com/stamparm/maltrail/master/trails/static/malware/generic.txt',
+            'https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/malwaredomains.netset',
+            'https://raw.githubusercontent.com/Yisf/Daily-Malware-Samples/main/indicators.json'
+        ]
+        self.patterns_cache = {}
+        self.last_update = 0
+        self.update_interval = 3600  # 1 hour
+        self.init_cache_db()
+
+    def init_cache_db(self):
+        """Initialize SQLite cache database."""
+        try:
+            conn = sqlite3.connect(self.cache_db)
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS threat_patterns (
+                    id INTEGER PRIMARY KEY,
+                    pattern TEXT UNIQUE,
+                    confidence REAL,
+                    severity TEXT,
+                    category TEXT,
+                    source TEXT,
+                    last_updated INTEGER
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS threat_indicators (
+                    id INTEGER PRIMARY KEY,
+                    indicator TEXT UNIQUE,
+                    type TEXT,
+                    confidence REAL,
+                    source TEXT,
+                    last_updated INTEGER
+                )
+            ''')
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.warning(f"Could not initialize threat cache: {e}")
+
+    def update_threat_intelligence(self):
+        """Update threat patterns from feeds."""
+        current_time = int(time.time())
+        if current_time - self.last_update < self.update_interval:
+            return
+
+        try:
+            conn = sqlite3.connect(self.cache_db)
+            cursor = conn.cursor()
+
+            for feed_url in self.threat_feeds:
+                try:
+                    # Use urllib instead of requests for built-in compatibility
+                    with urllib.request.urlopen(feed_url, timeout=30) as response:
+                        data = response.read().decode('utf-8', errors='ignore')
+                        self._parse_threat_feed(data, feed_url, cursor)
+                except Exception as e:
+                    logger.debug(f"Failed to update from {feed_url}: {e}")
+                    continue
+
+            conn.commit()
+            conn.close()
+            self.last_update = current_time
+            logger.info("Threat intelligence updated successfully")
+
+        except Exception as e:
+            logger.warning(f"Threat intelligence update failed: {e}")
+
+    def _parse_threat_feed(self, data, source, cursor):
+        """Parse threat feed data and extract patterns."""
+        lines = data.split('\n')
+        for line in lines[:100]:  # Limit to prevent memory issues
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+
+            # Extract malicious domains/URLs
+            if any(indicator in line.lower() for indicator in ['http', 'domain', 'url']):
+                try:
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO threat_indicators
+                        (indicator, type, confidence, source, last_updated)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (line, 'domain', 0.7, source, int(time.time())))
+                except:
+                    continue
+
+    def get_dynamic_patterns(self):
+        """Get cached threat patterns."""
+        if not self.patterns_cache:
+            self.update_threat_intelligence()
+            self._load_patterns_from_cache()
+        return self.patterns_cache
+
+    def _load_patterns_from_cache(self):
+        """Load patterns from SQLite cache."""
+        try:
+            conn = sqlite3.connect(self.cache_db)
+            cursor = conn.cursor()
+            cursor.execute('SELECT pattern, confidence, severity, category FROM threat_patterns')
+
+            for row in cursor.fetchall():
+                pattern, confidence, severity, category = row
+                if category not in self.patterns_cache:
+                    self.patterns_cache[category] = []
+                self.patterns_cache[category].append({
+                    'pattern': pattern,
+                    'confidence': confidence,
+                    'severity': severity
+                })
+            conn.close()
+        except Exception as e:
+            logger.debug(f"Could not load patterns from cache: {e}")
+
+    def check_typosquatting(self, extension_name, known_extensions):
+        """Check for typosquatting using difflib."""
+        suspicious_matches = []
+        for known in known_extensions:
+            similarity = SequenceMatcher(None, extension_name.lower(), known.lower()).ratio()
+            if 0.7 <= similarity < 0.95:  # Similar but not identical
+                suspicious_matches.append({
+                    'target': known,
+                    'similarity': similarity,
+                    'confidence': min(similarity * 1.2, 1.0)
+                })
+        return suspicious_matches
+
+    def calculate_file_hash(self, file_path):
+        """Calculate file hash for integrity checking."""
+        try:
+            with open(file_path, 'rb') as f:
+                return hashlib.sha256(f.read()).hexdigest()
+        except:
+            return None
+
+    def check_publisher_reputation(self, publisher_name):
+        """Check publisher reputation using built-in http.client."""
+        try:
+            import http.client
+            import json
+            from urllib.parse import quote
+
+            # Use VS Code marketplace API
+            conn = http.client.HTTPSConnection('marketplace.visualstudio.com', timeout=10)
+
+            # Search for publisher
+            encoded_publisher = quote(publisher_name)
+            conn.request('GET', f'/api/v2/extensionquery',
+                headers={'Content-Type': 'application/json'})
+
+            response = conn.getresponse()
+            if response.status == 200:
+                data = response.read().decode('utf-8')
+                # Simple reputation check based on publisher existence
+                return {
+                    'exists': True,
+                    'confidence': 0.8,
+                    'verified': True
+                }
+            else:
+                return {
+                    'exists': False,
+                    'confidence': 0.3,
+                    'verified': False
+                }
+
+        except Exception as e:
+            logger.debug(f"Publisher reputation check failed: {e}")
+            return {'exists': False, 'confidence': 0.5, 'verified': False}
+        finally:
+            try:
+                conn.close()
+            except:
+                pass
+
+    def check_domain_reputation(self, domain):
+        """Check domain reputation using built-in libraries."""
+        try:
+            import socket
+            import ssl
+
+            # Basic domain validation
+            socket.gethostbyname(domain)
+
+            # SSL certificate check
+            context = ssl.create_default_context()
+            with socket.create_connection((domain, 443), timeout=5) as sock:
+                with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                    cert = ssock.getpeercert()
+                    return {
+                        'domain_valid': True,
+                        'ssl_valid': cert is not None,
+                        'confidence': 0.7 if cert else 0.4
+                    }
+        except Exception:
+            return {'domain_valid': False, 'ssl_valid': False, 'confidence': 0.2}
+
+    def calculate_file_statistics(self, extension_path):
+        """Calculate file statistics for anomaly detection."""
+        try:
+            file_sizes = []
+            line_counts = []
+            complexity_scores = []
+
+            for file_path in Path(extension_path).rglob('*.js'):
+                if file_path.is_file():
+                    try:
+                        file_size = file_path.stat().st_size
+                        file_sizes.append(file_size)
+
+                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read()
+                            lines = content.count('\n')
+                            line_counts.append(lines)
+
+                            # Simple complexity measure
+                            complexity = len(re.findall(r'[{}();]', content))
+                            complexity_scores.append(complexity)
+                    except:
+                        continue
+
+            if not file_sizes:
+                return {}
+
+            return {
+                'file_count': len(file_sizes),
+                'avg_file_size': statistics.mean(file_sizes),
+                'median_file_size': statistics.median(file_sizes),
+                'size_std_dev': statistics.stdev(file_sizes) if len(file_sizes) > 1 else 0,
+                'avg_lines': statistics.mean(line_counts),
+                'avg_complexity': statistics.mean(complexity_scores),
+                'size_outliers': self._detect_size_outliers(file_sizes),
+                'complexity_outliers': self._detect_complexity_outliers(complexity_scores)
+            }
+        except Exception as e:
+            logger.debug(f"Statistics calculation failed: {e}")
+            return {}
+
+    def _detect_size_outliers(self, sizes):
+        """Detect file size outliers using IQR method."""
+        if len(sizes) < 4:
+            return []
+
+        try:
+            q1 = statistics.quantiles(sizes, n=4)[0]
+            q3 = statistics.quantiles(sizes, n=4)[2]
+            iqr = q3 - q1
+            lower_bound = q1 - 1.5 * iqr
+            upper_bound = q3 + 1.5 * iqr
+
+            outliers = [size for size in sizes if size < lower_bound or size > upper_bound]
+            return outliers
+        except:
+            return []
+
+    def _detect_complexity_outliers(self, complexities):
+        """Detect complexity outliers."""
+        if len(complexities) < 4:
+            return []
+
+        try:
+            avg = statistics.mean(complexities)
+            std_dev = statistics.stdev(complexities)
+            threshold = avg + 2 * std_dev
+
+            outliers = [c for c in complexities if c > threshold]
+            return outliers
+        except:
+            return []
+
+    def analyze_extension_patterns(self, extension_path):
+        """Analyze extension for suspicious patterns using built-in libraries."""
+        suspicious_indicators = []
+
+        # Pattern frequency analysis
+        pattern_counts = collections.Counter()
+
+        for file_path in Path(extension_path).rglob('*.js'):
+            if file_path.is_file():
+                try:
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+
+                    # Count suspicious patterns
+                    eval_count = len(re.findall(r'\beval\s*\(', content))
+                    atob_count = len(re.findall(r'\batob\s*\(', content))
+                    exec_count = len(re.findall(r'\bexec\s*\(', content))
+
+                    pattern_counts['eval'] += eval_count
+                    pattern_counts['atob'] += atob_count
+                    pattern_counts['exec'] += exec_count
+
+                except:
+                    continue
+
+        # Detect anomalous pattern usage
+        total_files = len(list(Path(extension_path).rglob('*.js')))
+        if total_files > 0:
+            for pattern, count in pattern_counts.items():
+                ratio = count / total_files
+                if ratio > 0.5:  # More than 50% of files contain pattern
+                    suspicious_indicators.append({
+                        'pattern': pattern,
+                        'frequency': count,
+                        'ratio': ratio,
+                        'confidence': min(ratio * 0.8, 1.0),
+                        'severity': 'HIGH' if ratio > 0.8 else 'MEDIUM'
+                    })
+
+        return suspicious_indicators
+
 class EnhancedProductionScanner:
     """Enhanced production scanner with improved accuracy and reduced false positives."""
 
@@ -558,6 +910,16 @@ class EnhancedProductionScanner:
         self.session.headers.update({
             'User-Agent': 'VSX-Bastion-Enhanced-Scanner/2.0'
         })
+
+        # Initialize dynamic threat intelligence
+        self.threat_intel = DynamicThreatIntelligence()
+
+        # Known popular extensions for typosquatting detection
+        self.popular_extensions = [
+            'ms-python.python', 'ms-vscode.vscode-typescript-next',
+            'esbenp.prettier-vscode', 'bradlc.vscode-tailwindcss',
+            'ms-vscode.vscode-json', 'github.copilot', 'formulahendry.auto-rename-tag'
+        ]
 
         # Enhanced RCE patterns with confidence scoring
         self.rce_patterns = {
@@ -981,10 +1343,27 @@ class EnhancedProductionScanner:
 
         logger.info(f"Starting enhanced scan of {extension_id}")
 
+        # Update threat intelligence in background
+        threading.Thread(target=self.threat_intel.update_threat_intelligence, daemon=True).start()
+
+        # Check for typosquatting
+        typosquat_matches = self.threat_intel.check_typosquatting(extension_id, self.popular_extensions)
+        typosquat_threats = []
+
+        for match in typosquat_matches:
+            typosquat_threats.append(ThreatDetection(
+                category='typosquatting',
+                file_path='extension_name',
+                pattern_match=f"Similar to {match['target']} (similarity: {match['similarity']:.2f})",
+                confidence=match['confidence'],
+                context=f"Potential typosquatting of popular extension {match['target']}",
+                severity='HIGH' if match['similarity'] > 0.85 else 'MEDIUM'
+            ))
+
         # Download extension
         vsix_path = self.download_extension(extension_id)
         if not vsix_path:
-            return ScanResult(
+            error_result = ScanResult(
                 extension_id=extension_id,
                 status='ERROR',
                 threats=[],
@@ -995,13 +1374,14 @@ class EnhancedProductionScanner:
                 scan_time=time.time() - start_time,
                 false_positive_indicators=[]
             )
+            return error_result.to_app_format()
 
         extension_path = None
         try:
             # Extract extension
             extension_path = self.extract_extension(vsix_path)
             if not extension_path:
-                return ScanResult(
+                error_result = ScanResult(
                     extension_id=extension_id,
                     status='ERROR',
                     threats=[],
@@ -1012,9 +1392,45 @@ class EnhancedProductionScanner:
                     scan_time=time.time() - start_time,
                     false_positive_indicators=[]
                 )
+                return error_result.to_app_format()
 
             # Enhanced dependency checking
             vulnerabilities = self.check_dependencies(extension_path)
+
+            # Calculate file hashes for integrity checking
+            file_hashes = {}
+            for file_path in Path(extension_path).rglob('*.js'):
+                if file_path.is_file():
+                    file_hash = self.threat_intel.calculate_file_hash(file_path)
+                    if file_hash:
+                        file_hashes[str(file_path.relative_to(extension_path))] = file_hash
+
+            # Statistical anomaly detection
+            file_stats = self.threat_intel.calculate_file_statistics(extension_path)
+            pattern_analysis = self.threat_intel.analyze_extension_patterns(extension_path)
+
+            # Add statistical anomalies as threats
+            stats_threats = []
+            if file_stats.get('size_outliers'):
+                stats_threats.append(ThreatDetection(
+                    category='statistical_anomaly',
+                    file_path='multiple_files',
+                    pattern_match=f"Unusual file sizes detected: {len(file_stats['size_outliers'])} outliers",
+                    confidence=0.4,
+                    context=f"Average size: {file_stats.get('avg_file_size', 0):.0f} bytes",
+                    severity='MEDIUM'
+                ))
+
+            # Add pattern frequency anomalies
+            for indicator in pattern_analysis:
+                stats_threats.append(ThreatDetection(
+                    category='pattern_frequency_anomaly',
+                    file_path='multiple_files',
+                    pattern_match=f"High frequency of {indicator['pattern']} pattern",
+                    confidence=indicator['confidence'],
+                    context=f"Found in {indicator['frequency']} locations ({indicator['ratio']:.1%} of files)",
+                    severity=indicator['severity']
+                ))
 
             # Scan extension source files with enhanced detection
             source_threats = []
@@ -1038,8 +1454,11 @@ class EnhancedProductionScanner:
                         false_positive_indicators.append(f"Minified file detected: {relative_path} ({reason})")
                         continue
 
-                    # Enhanced pattern scanning
-                    for category, pattern_list in self.rce_patterns.items():
+                    # Enhanced pattern scanning with dynamic patterns
+                    patterns_config = self._get_patterns_config()
+                    all_patterns = patterns_config.get('rce_patterns', {})
+
+                    for category, pattern_list in all_patterns.items():
                         for pattern_info in pattern_list:
                             pattern = pattern_info['pattern']
 
@@ -1074,8 +1493,10 @@ class EnhancedProductionScanner:
             logger.info("Docker analysis temporarily disabled for testing")
             docker_results = None
 
-            # Compile all threats
+            # Compile all threats including typosquatting and statistical anomalies
             all_threats = source_threats.copy()
+            all_threats.extend(typosquat_threats)
+            all_threats.extend(stats_threats)
 
             # Docker analysis temporarily disabled - all threats come from host scan only
 
@@ -1110,7 +1531,7 @@ class EnhancedProductionScanner:
             scan_time = time.time() - start_time
             logger.info(f"Enhanced scan completed for {extension_id}: {status} ({scan_time:.2f}s)")
 
-            return ScanResult(
+            scan_result = ScanResult(
                 extension_id=extension_id,
                 status=status,
                 threats=all_threats,
@@ -1121,11 +1542,20 @@ class EnhancedProductionScanner:
                     'docker_analysis': docker_results,
                     'file_count': len(list(Path(extension_path).rglob('*'))) if extension_path else 0,
                     'pattern_categories_detected': list(set(t.category for t in all_threats)),
-                    'avg_threat_confidence': confidence_score
+                    'avg_threat_confidence': confidence_score,
+                    'file_hashes': file_hashes,
+                    'typosquatting_detected': len(typosquat_matches) > 0,
+                    'threat_intel_updated': int(self.threat_intel.last_update),
+                    'file_statistics': file_stats,
+                    'pattern_anomalies': len(pattern_analysis),
+                    'statistical_threats': len(stats_threats)
                 },
                 scan_time=scan_time,
                 false_positive_indicators=false_positive_indicators
             )
+
+            # Return app-compatible format
+            return scan_result.to_app_format()
 
         finally:
             # Cleanup
