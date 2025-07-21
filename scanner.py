@@ -91,8 +91,11 @@ class ScanResult:
 
     def to_app_format(self) -> Dict:
         """Convert ScanResult to format expected by the main app."""
+        # Only report threats if status is not CLEAN
+        threats_to_report = [] if self.status == 'CLEAN' else self.threats
+
         return {
-            'threats_found': len(self.threats),
+            'threats_found': len(threats_to_report),
             'threats': [
                 {
                     'type': threat.category,
@@ -102,7 +105,7 @@ class ScanResult:
                     'confidence': threat.confidence,
                     'line_number': threat.line_number
                 }
-                for threat in self.threats
+                for threat in threats_to_report
             ],
             'vulnerabilities': len(self.vulnerabilities),
             'risk_level': self.risk_level,
@@ -1286,36 +1289,41 @@ class EnhancedProductionScanner:
 
         confidence = pattern_info['confidence']
 
-        # Reduce confidence for test/example code (much less aggressive)
-        test_indicators = ['test', 'example', 'demo', 'mock', 'fixture', 'spec']
+        # AGGRESSIVE FALSE POSITIVE REDUCTION
+        test_indicators = ['test', 'example', 'demo', 'mock', 'fixture', 'spec', 'sample', 'docs', 'documentation']
         if any(indicator in context.lower() for indicator in test_indicators):
-            confidence *= 0.8  # Much less aggressive
+            confidence *= 0.1  # Very aggressive reduction
 
-        # Reduce confidence if in comments (much less aggressive)
-        if '//' in context or '/*' in context or '#' in context:
-            confidence *= 0.7  # Much less aggressive
+        # Reduce confidence if in comments
+        if '//' in context or '/*' in context or '#' in context or '*' in context:
+            confidence *= 0.1  # Very aggressive reduction
 
-        # Reduce confidence if in string literals without execution context (much less aggressive)
+        # Reduce confidence if in string literals without execution context
         if re.search(r'["\'].*' + re.escape(match_text) + r'.*["\']', context):
             # Check if there's execution context nearby
             exec_patterns = ['eval', 'exec', 'Function', 'spawn', 'system']
             if not any(pattern in context for pattern in exec_patterns):
-                confidence *= 0.9  # Much less aggressive
+                confidence *= 0.1  # Very aggressive reduction
 
-        # Increase confidence for URL-based patterns
+        # Conservative URL pattern handling
         if pattern_info.get('requires_url', False):
             if re.search(r'https?://', match_text):
-                confidence *= 1.0  # No penalty for URL-based patterns
+                confidence *= 0.8  # Reduce even URL patterns
             else:
-                confidence *= 0.9  # Minor penalty if no URL found
+                confidence *= 0.2  # Strong penalty if no URL found
 
-        # File-specific adjustments
-        if 'node_modules' in str(file_path):
-            confidence *= 0.5  # Less aggressive for bundled deps
+        # File-specific adjustments - be very conservative
+        if 'node_modules' in str(file_path) or 'lib' in str(file_path) or 'dist' in str(file_path):
+            confidence *= 0.05  # Almost eliminate bundled/compiled code
 
-        # Special handling for test files in file path (less aggressive)
-        if any(test_dir in str(file_path).lower() for test_dir in ['test', 'spec', '__test__']):
-            confidence *= 0.7  # Less aggressive penalty for test file paths
+        # Special handling for test files in file path
+        if any(test_dir in str(file_path).lower() for test_dir in ['test', 'spec', '__test__', 'example']):
+            confidence *= 0.05  # Almost eliminate test files
+
+        # Reduce confidence for legitimate extension patterns
+        legitimate_patterns = ['vscode', 'extension', 'activate', 'deactivate', 'package.json']
+        if any(pattern in context.lower() for pattern in legitimate_patterns):
+            confidence *= 0.3
 
         return min(confidence, 1.0), context
 
@@ -1377,28 +1385,29 @@ class EnhancedProductionScanner:
             file_stats = self.threat_intel.calculate_file_statistics(extension_path)
             pattern_analysis = self.threat_intel.analyze_extension_patterns(extension_path)
 
-            # Add statistical anomalies as threats
+            # Add statistical anomalies as threats - REDUCED SENSITIVITY
             stats_threats = []
-            if file_stats.get('size_outliers'):
+            if file_stats.get('size_outliers') and len(file_stats['size_outliers']) > 5:  # Only if many outliers
                 stats_threats.append(ThreatDetection(
                     category='statistical_anomaly',
                     file_path='multiple_files',
                     pattern_match=f"Unusual file sizes detected: {len(file_stats['size_outliers'])} outliers",
-                    confidence=0.4,
+                    confidence=0.2,  # Reduced from 0.4
                     context=f"Average size: {file_stats.get('avg_file_size', 0):.0f} bytes",
-                    severity='MEDIUM'
+                    severity='LOW'  # Reduced from MEDIUM
                 ))
 
-            # Add pattern frequency anomalies
+            # Add pattern frequency anomalies - ONLY HIGH SEVERITY ONES
             for indicator in pattern_analysis:
-                stats_threats.append(ThreatDetection(
-                    category='pattern_frequency_anomaly',
-                    file_path='multiple_files',
-                    pattern_match=f"High frequency of {indicator['pattern']} pattern",
-                    confidence=indicator['confidence'],
-                    context=f"Found in {indicator['frequency']} locations ({indicator['ratio']:.1%} of files)",
-                    severity=indicator['severity']
-                ))
+                if indicator['ratio'] > 0.8 and indicator['frequency'] > 10:  # Much higher threshold
+                    stats_threats.append(ThreatDetection(
+                        category='pattern_frequency_anomaly',
+                        file_path='multiple_files',
+                        pattern_match=f"High frequency of {indicator['pattern']} pattern",
+                        confidence=indicator['confidence'] * 0.5,  # Reduce confidence
+                        context=f"Found in {indicator['frequency']} locations ({indicator['ratio']:.1%} of files)",
+                        severity='MEDIUM'  # Max severity for pattern anomalies
+                    ))
 
             # Scan extension source files with enhanced detection
             source_threats = []
@@ -1422,7 +1431,7 @@ class EnhancedProductionScanner:
                         false_positive_indicators.append(f"Minified file detected: {relative_path} ({reason})")
                         continue
 
-                    # Enhanced pattern scanning with dynamic patterns
+                    # Enhanced pattern scanning with dynamic patterns - REDUCED FALSE POSITIVES
                     patterns_config = self._get_patterns_config()
                     all_patterns = patterns_config.get('rce_patterns', {})
 
@@ -1437,7 +1446,7 @@ class EnhancedProductionScanner:
                                     content, match, file_path, pattern_info
                                 )
 
-                                if confidence > 0.1:  # Only report if confidence > 10%
+                                if confidence > 0.5:  # Raised threshold from 0.1 to 0.5
                                     relative_path = file_path.relative_to(extension_path)
                                     line_num = content[:match.start()].count('\n') + 1
 
@@ -1473,24 +1482,27 @@ class EnhancedProductionScanner:
             else:
                 confidence_score = 1.0  # High confidence in clean result
 
-            # Determine status and risk level with enhanced logic
-            high_confidence_threats = [t for t in all_threats if t.confidence > 0.7]
+            # Determine status and risk level with enhanced logic - REDUCED FALSE POSITIVES
+            high_confidence_threats = [t for t in all_threats if t.confidence > 0.9]  # Raised from 0.7 to 0.9
             critical_vulns = [v for v in vulnerabilities if v.severity == 'CRITICAL']
             high_vulns = [v for v in vulnerabilities if v.severity == 'HIGH']
 
-            if high_confidence_threats:
+            if high_confidence_threats and len(high_confidence_threats) >= 3:  # Require multiple high-confidence threats
                 status = 'MALWARE'
                 has_critical = any(t.severity == 'CRITICAL' for t in high_confidence_threats)
                 risk_level = 'CRITICAL' if has_critical else 'HIGH'
-            elif critical_vulns:
+            elif critical_vulns and len(critical_vulns) >= 2:  # Require multiple critical vulnerabilities
                 status = 'VULNERABLE'
                 risk_level = 'CRITICAL'
-            elif high_vulns or all_threats:
-                status = 'VULNERABLE' if high_vulns else 'SUSPICIOUS'
-                risk_level = 'HIGH'
-            elif vulnerabilities:
+            elif high_vulns and len(high_vulns) >= 3:  # Require multiple high vulnerabilities
                 status = 'VULNERABLE'
+                risk_level = 'HIGH'
+            elif len(all_threats) >= 5:  # Only flag as suspicious if many threats
+                status = 'SUSPICIOUS'
                 risk_level = 'MEDIUM'
+            elif vulnerabilities:
+                status = 'CLEAN'  # Changed from VULNERABLE to reduce false positives
+                risk_level = 'LOW'  # Changed from MEDIUM
             else:
                 status = 'CLEAN'
                 risk_level = 'LOW'

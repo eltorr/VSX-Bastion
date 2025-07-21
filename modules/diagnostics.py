@@ -51,3 +51,34 @@ class ExtensionDiagnostics:
             "total_directories": len(actual_dirs),
             "total_metadata": len(metadata_dirs)
         }
+
+    def mark_installed(self, extension_id: str):
+        """Mark extension as successfully installed"""
+        # Could log or track installation status if needed
+        pass
+
+    def mark_failed(self, extension_id: str):
+        """Mark extension as failed to install"""
+        # Could log or track failure status if needed
+        pass
+
+    def run_diagnostics(self, extension_ids: list, target_path: str) -> Dict:
+        """Run diagnostics and return results"""
+        consistency = self.check_consistency()
+        return {
+            'consistency': consistency,
+            'extensions_path': self.extensions_path,
+            'extensions_json_exists': os.path.exists(self.extensions_json_path),
+            'target_path': target_path,
+            'extension_count': len(extension_ids)
+        }
+
+    def print_diagnostic_summary(self, diagnostic_results: Dict):
+        """Print diagnostic summary"""
+        print(f"📊 Diagnostic Results:")
+        print(f"   Extensions path: {diagnostic_results.get('extensions_path', 'Unknown')}")
+        print(f"   Extensions.json exists: {diagnostic_results.get('extensions_json_exists', False)}")
+        print(f"   Target path: {diagnostic_results.get('target_path', 'Unknown')}")
+        consistency = diagnostic_results.get('consistency', {})
+        print(f"   Total directories: {consistency.get('total_directories', 0)}")
+        print(f"   Orphaned entries: {consistency.get('orphaned_entries', 0)}")

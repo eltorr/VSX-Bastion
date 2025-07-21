@@ -176,6 +176,8 @@ class SecureExtensionInstallerApp:
             # Use the ExtensionInstaller's install_extensions method
             result = self.installer.install_extensions(extension_ids, self.target_path)
 
+
+
             # Convert the result format to our expected format
             results = {}
             for ext_id in extension_ids:

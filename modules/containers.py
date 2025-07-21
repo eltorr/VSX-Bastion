@@ -50,8 +50,12 @@ WORKDIR /workspace
                 os.remove("Dockerfile")
 
     def start_container(self, volume_mount: str) -> bool:
-        """Start container with volume mount"""
+        """Start temporary container with volume mount"""
         try:
+            # Remove any existing container with same name first (cleanup from previous runs)
+            self.cleanup()
+
+            # Create fresh temporary container
             subprocess.run([
                 "docker", "run", "-d", "--name", self.container_name,
                 "-v", f"{volume_mount}:/target/extensions",
@@ -59,26 +63,47 @@ WORKDIR /workspace
             ], check=True, capture_output=True, text=True)
             time.sleep(3)
             return True
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
             return False
 
     def install_extension(self, extension_id: str) -> bool:
         """Install single extension"""
         try:
+            # Check if container is running
+            check_result = subprocess.run([
+                "docker", "ps", "--filter", f"name={self.container_name}", "--format", "{{.Names}}"
+            ], capture_output=True, text=True)
+
+            if self.container_name not in check_result.stdout:
+                return False
+
             result = subprocess.run([
                 "docker", "exec", self.container_name,
                 "/install_extension.sh", extension_id
             ], capture_output=True, text=True, timeout=120)
-            return result.returncode == 0
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+
+            # Check if extension is already installed (common case)
+            if "is already installed" in result.stdout or "is already installed" in result.stderr:
+                return True
+
+            if result.returncode != 0:
+                return False
+            else:
+                return True
+
+        except subprocess.TimeoutExpired:
+            return False
+        except subprocess.CalledProcessError as e:
             return False
 
     def cleanup(self) -> None:
-        """Clean up container resources"""
+        """Clean up container resources - ensures temporary container approach"""
         try:
+            # Stop container if running
             subprocess.run(["docker", "stop", self.container_name],
-                         capture_output=True, text=True)
+                         capture_output=True, text=True, check=False)
+            # Remove container
             subprocess.run(["docker", "rm", self.container_name],
-                         capture_output=True, text=True)
+                         capture_output=True, text=True, check=False)
         except subprocess.CalledProcessError:
             pass

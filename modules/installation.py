@@ -66,11 +66,15 @@ class ExtensionInstaller:
         installed = []
         failed = []
 
-        for ext in allowed:
-            if self.container.install_extension(ext):
-                installed.append(ext)
-            else:
-                failed.append(ext)
+        try:
+            for ext in allowed:
+                if self.container.install_extension(ext):
+                    installed.append(ext)
+                else:
+                    failed.append(ext)
+        finally:
+            # Always cleanup container to maintain temporary container approach
+            self.container.cleanup()
 
         return {
             'success': len(installed) > 0,
