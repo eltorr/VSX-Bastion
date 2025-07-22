@@ -14,7 +14,8 @@ class ExtensionInstaller:
         self.filesystem = filesystem
         self.filter = filter
 
-    def install_extensions(self, requested: List[str], target_path: str) -> dict:
+    def install_extensions(self, requested: List[str], target_path: str,
+                          force_reinstall: bool = False) -> dict:
         """Install filtered extensions to target path"""
         # Filter extensions
         allowed, blocked_by_security, not_whitelisted = self.filter.filter_extensions(requested)
@@ -30,16 +31,19 @@ class ExtensionInstaller:
                 'failed': []
             }
 
-        # Clean target directory
-        if not self.filesystem.clean_directory(target_path):
-            return {
-                'success': False,
-                'message': 'Failed to clean target directory',
-                'allowed': allowed,
-                'blocked': blocked,
-                'installed': [],
-                'failed': []
-            }
+        # Clean target directory (only if not using cleanup flag from app)
+        # App handles cleanup separately when --cleanup flag is used
+        # if not self.filesystem.clean_directory(target_path):
+        #     return {
+        #         'success': False,
+        #         'message': 'Failed to clean target directory',
+        #         'allowed': allowed,
+        #         'blocked': blocked,
+        #         'installed': [],
+        #         'failed': []
+        #     }
+
+
 
         # Build and start container
         if not self.container.build_image():
@@ -68,7 +72,7 @@ class ExtensionInstaller:
 
         try:
             for ext in allowed:
-                if self.container.install_extension(ext):
+                if self.container.install_extension(ext, force_reinstall=force_reinstall):
                     installed.append(ext)
                 else:
                     failed.append(ext)
