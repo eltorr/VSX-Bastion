@@ -29,7 +29,9 @@ class SecureExtensionInstallerApp:
                  security_scan: bool = True,
                  force_install: bool = False,
                  scan_only: bool = False,
-                 verbose: bool = False):
+                 verbose: bool = False,
+                 cleanup: bool = False,
+                 force_reinstall: bool = False):
 
         # Configuration
         self.config_path = config_path
@@ -42,6 +44,8 @@ class SecureExtensionInstallerApp:
         self.force_install = force_install
         self.scan_only = scan_only
         self.verbose = verbose
+        self.cleanup = cleanup
+        self.force_reinstall = force_reinstall
 
         # Initialize components
         self.file_reader = YAMLFileReader()
@@ -173,8 +177,15 @@ class SecureExtensionInstallerApp:
             if self.verbose:
                 print(f"📦 Installing {len(extension_ids)} extensions...")
 
+            # Handle cleanup options
+            if self.cleanup:
+                if self.verbose:
+                    print("🧹 Cleaning target extensions directory...")
+                self.filesystem_manager.clean_directory(self.target_path)
+
             # Use the ExtensionInstaller's install_extensions method
-            result = self.installer.install_extensions(extension_ids, self.target_path)
+            result = self.installer.install_extensions(extension_ids, self.target_path,
+                                                      force_reinstall=self.force_reinstall)
 
 
 
