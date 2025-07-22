@@ -71,20 +71,23 @@ python3 main.py --config extensions-list/whitelist.yaml --editor cursor
 
 ## 🎯 How VSX-Bastion Protects You
 
-VSX-Bastion uses a **bastion host approach** - deploying a secure container with official VS Code to safely install extensions from the official marketplace. This container acts as an isolated environment that:
+VSX-Bastion uses a **bastion host approach** - creating temporary Docker containers with official VS Code to safely install extensions. Each installation uses a fresh, isolated environment that:
 
-1. **Fetches extensions** from verified official sources only
-2. **Scans for malicious code** using pattern detection and behavioral analysis
-3. **Installs in isolation** preventing direct access to your development machine
-4. **Transfers clean extensions** to your editor's extensions folder after verification
+1. **Creates temporary container** with official VS Code for each extension
+2. **Fetches extensions** from verified official sources only in isolation
+3. **Scans for malicious code** using pattern detection and behavioral analysis
+4. **Installs in mounted directory** preventing direct access to your development machine
+5. **Transfers clean extensions** to your selected editor's extensions folder
+6. **Auto-destroys container** ensuring no persistent contamination between runs
 
 ### Security Architecture
 
 - **📋 YAML Configuration**: Extensions organized by verified publisher with install flags
-- **🔒 Container Isolation**: Bastion container prevents malicious code execution on host
-- **⚡ Curated Installation**: Install verified extensions in ~30 seconds
+- **🔒 Temporary Container Isolation**: Fresh Docker container for each extension prevents malicious code execution on host
+- **⚡ Curated Installation**: Install verified extensions in ~30 seconds using bastion approach
 - **🎯 Multi-Editor Support**: VS Code, Cursor, Windsurf, VSCodium, Code-OSS
-- **🛡️ Threat Detection**: Automated scanning blocks known attack patterns
+- **🛡️ Dynamic Threat Detection**: Real-time scanning with auto-updating threat intelligence
+- **🧹 Auto-Cleanup**: Containers automatically destroyed after each installation
 
 ## 📋 Configuration Format
 
@@ -175,22 +178,45 @@ VSX-Bastion/
 ```bash
 # Fast installation of curated environment (~30 seconds)
 python3 main.py --config extensions-list/whitelist.yaml --editor cursor
+
+# Install only extensions marked with install: true
+python3 main.py --config extensions-list/whitelist.yaml
+
+# Install all whitelisted extensions regardless of install flag
+python3 main.py --config extensions-list/whitelist.yaml --install-all
 ```
 
-### Adding New Extensions Safely
+### Security Scanning Workflows
 ```bash
-# 1. ALWAYS scan first for security threats
-python3 scanner.py --extension new.extension
-
-# 2. Add to extensions-list/whitelist.yaml with verified publisher and official URL
-# 3. Install with verification scan
+# Install with security scanning first
 python3 main.py --config extensions-list/whitelist.yaml --scan-new
+
+# Scan only without installing
+python3 main.py --config extensions-list/whitelist.yaml --scan-only
+
+# Skip scanning entirely (faster, less secure)
+python3 main.py --config extensions-list/whitelist.yaml --no-scan
+```
+
+### Cleanup and Maintenance
+```bash
+# Clean extensions directory before installing (fresh start)
+python3 main.py --config extensions-list/whitelist.yaml --cleanup
+
+# Force reinstall extensions (updates to latest versions)
+python3 main.py --config extensions-list/whitelist.yaml --force-reinstall
+
+# Full cleanup with force reinstall
+python3 main.py --config extensions-list/whitelist.yaml --cleanup --force-reinstall
 ```
 
 ### Team Environment Protection
 ```bash
 # Deploy curated extensions across team
-python3 main.py --config extensions-list/team-config.yaml --install-all
+python3 main.py --config extensions-list/team-config.yaml --install-all --scan-new
+
+# Verbose output for debugging
+python3 main.py --config extensions-list/whitelist.yaml --verbose
 ```
 
 ### Security Monitoring
@@ -204,8 +230,8 @@ python3 main.py --list-installable
 # Check specific extension security status
 python3 main.py --status extension.name
 
-# Update security blacklist with latest threats
-python3 scanner.py --update-blacklist
+# Force install even with security concerns (use with caution)
+python3 main.py --config extensions-list/whitelist.yaml --force
 ```
 
 ## 🐛 Quick Troubleshooting
@@ -255,26 +281,71 @@ pip install -r requirements.txt
 python3 -c "import requests; import yaml; print('Success')"
 ```
 
-## 📚 Documentation
+## 📚 Command Reference
+
+### Core Installation Commands
+```bash
+# Basic installation (extensions with install: true)
+python3 main.py --config extensions-list/whitelist.yaml
+
+# Install all whitelisted extensions
+python3 main.py --config extensions-list/whitelist.yaml --install-all
+
+# Install for specific editor
+python3 main.py --config extensions-list/whitelist.yaml --editor vscode
+```
+
+### Security Options
+```bash
+# Scan extensions before installing
+python3 main.py --config extensions-list/whitelist.yaml --scan-new
+
+# Scan only, don't install
+python3 main.py --config extensions-list/whitelist.yaml --scan-only
+
+# Skip security scanning
+python3 main.py --config extensions-list/whitelist.yaml --no-scan
+
+# Force install despite security warnings
+python3 main.py --config extensions-list/whitelist.yaml --force
+```
+
+### Cleanup Options
+```bash
+# Clean target directory before installing
+python3 main.py --config extensions-list/whitelist.yaml --cleanup
+
+# Force reinstall extensions (updates)
+python3 main.py --config extensions-list/whitelist.yaml --force-reinstall
+```
+
+### Information Commands
+```bash
+# List all whitelisted extensions
+python3 main.py --list-all
+
+# List extensions marked for installation
+python3 main.py --list-installable
+
+# Check specific extension status
+python3 main.py --status extension.name
+
+# Verbose output for debugging
+python3 main.py --config extensions-list/whitelist.yaml --verbose
+```
 
 ### Essential Security Guides
 - **[Quick Reference](docs/QUICK_REFERENCE.md)** - Complete command reference and security format guide
 - **[YAML Configuration Guide](docs/YAML_CONFIG_GUIDE.md)** - Safe configuration format, guidelines, and best practices
 - **[Blacklist System](docs/BLACKLIST_SYSTEM.md)** - Security architecture and threat detection workflows
 
-### Key Security Topics
-- **Commands & Safe Usage**: [Quick Reference](docs/QUICK_REFERENCE.md)
-- **YAML Security Guidelines**: [YAML Configuration Guide](docs/YAML_CONFIG_GUIDE.md#yaml-file-structure)
-- **Adding Extensions Safely**: [YAML Configuration Guide](docs/YAML_CONFIG_GUIDE.md#adding-new-extensions)
-- **Threat Detection**: [Blacklist System](docs/BLACKLIST_SYSTEM.md#security-policies)
-- **Team Security**: [YAML Configuration Guide](docs/YAML_CONFIG_GUIDE.md#team-specific-configurations)
-
 ## ⚡ Performance
 
 - **Secure Install** (4 verified extensions): ~30 seconds
 - **Bulk Install** (27 verified extensions): ~2-3 minutes
 - **With Security Scan**: +15-30 minutes (one-time verification for new extensions)
-- **Container Startup**: ~10 seconds (isolation overhead for security)
+- **Temporary Container Overhead**: ~2-3 seconds per extension (isolation for security)
+- **Fresh Container Per Extension**: Ensures maximum security isolation
 
 ## 🔒 Security Best Practices
 
