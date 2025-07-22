@@ -79,6 +79,18 @@ Examples:
     )
 
     parser.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="Clean target extensions directory before installation"
+    )
+
+    parser.add_argument(
+        "--force-reinstall",
+        action="store_true",
+        help="Force reinstall extensions even if already installed"
+    )
+
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Enable verbose output"
@@ -161,7 +173,9 @@ Examples:
             security_scan=not args.no_scan,
             force_install=args.force,
             scan_only=args.scan_only,
-            verbose=args.verbose
+            verbose=args.verbose,
+            cleanup=args.cleanup,
+            force_reinstall=args.force_reinstall
         )
 
         success = app.run()
